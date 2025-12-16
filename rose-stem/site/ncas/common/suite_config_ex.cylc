@@ -40,6 +40,7 @@
                      module load PrgEnv-gnu
                      module load lfric-spack
                      spack load lfric-apps@2.2%gcc shumlib@13.9+openmp%gcc
+                     module load cray-python
                      """
         [[[environment]]]
              COMPILER = 'gnu'
@@ -51,6 +52,7 @@
                      module load PrgEnv-cray
                      module load lfric-spack
                      spack load lfric-apps@2.2%cce shumlib@13.9+openmp%cce
+                     module load cray-python
                      """
         [[[environment]]]
              COMPILER = 'cce'
