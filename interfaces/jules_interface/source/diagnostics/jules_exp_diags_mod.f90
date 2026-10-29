@@ -10,9 +10,17 @@ module jules_exp_diags_mod
   use constants_mod,       only: l_def
   use field_mod,           only: field_type
   use integer_field_mod,   only: integer_field_type
-  use io_config_mod,       only: subroutine_timers
-  use timer_mod,           only: timer
-  use initialise_diagnostics_mod,     only : init_diag => init_diagnostic_field
+  use timing_mod,          only: start_timing, stop_timing, &
+                                 tik, LPROF
+  use initialise_diagnostics_mod, only : init_diag => init_diagnostic_field, &
+                                         samp_diag => diagnostic_to_be_sampled
+  use empty_data_mod,             only : empty_real_data
+  use extrusion_mod,              only: TWOD
+  use mesh_collection_mod,        only: mesh_collection
+  use mesh_mod,                   only: mesh_type
+  use function_space_collection_mod, only: function_space_collection
+  use function_space_mod,            only: function_space_type
+  use fs_continuity_mod,             only: W3
 
   implicit none
 
@@ -31,22 +39,41 @@ contains
   !> @param[inout] z0h_eff            Gridbox mean effective roughness length for scalars
   !> @param[inout] gross_prim_prod    Gross Primary Productivity
   !> @param[inout] soil_respiration   Soil heterotrophic respiration
+  !> @param[inout] chr10m             10m transfer coefficient
+  !> @param[in]    mesh               3D mesh field
   subroutine initialise_diags_for_jules_exp(z0h_eff, gross_prim_prod, &
-                                            soil_respiration)
+                                            soil_respiration, chr10m, mesh)
 
     implicit none
 
     type( field_type ), intent(inout) :: z0h_eff
     type( field_type ), intent(inout) :: gross_prim_prod
     type( field_type ), intent(inout) :: soil_respiration
+    type( field_type ), intent(inout) :: chr10m
 
-    if ( subroutine_timers ) call timer("jules_exp_diags")
+    type( mesh_type ), intent(in), pointer :: mesh
+    type(mesh_type), pointer :: twod_mesh
+    type(function_space_type), pointer :: vector_space
+
+    integer( tik )                    :: id
+
+    if ( LPROF ) call start_timing( id, 'diags.jules_exp' )
 
     z0h_eff_flag = init_diag(z0h_eff, 'surface__z0h_eff')
     gross_prim_prod_flag = init_diag(gross_prim_prod, 'surface__gross_prim_prod')
     soil_respiration_flag = init_diag(soil_respiration, 'surface__soil_respiration')
+    ! chr10m is required if either t10m_ssi or q10m_ssi are requested
+    ! but needed as an empty field otherwise
+    twod_mesh => mesh_collection%get_mesh(mesh, TWOD)
+    vector_space => function_space_collection%get_fs(twod_mesh, 0, 0, W3)
+    if (samp_diag('surface__t10m_ssi') .or. samp_diag('surface__q10m_ssi')) then
+      call chr10m%initialise(vector_space, name='chr10m')
+    else
+      call chr10m%initialise(vector_space, name='chr10m', &
+                             override_data = empty_real_data)
+    end if
 
-    if ( subroutine_timers ) call timer("jules_exp_diags")
+    if ( LPROF ) call stop_timing( id, 'diags.jules_exp' )
 
   end subroutine initialise_diags_for_jules_exp
 
@@ -79,9 +106,9 @@ contains
                                          gc_tile, soil_respiration, ustar,     &
                                          z0m_eff, canopy_height, leaf_area_index
     type( field_type ),  intent(in)   :: dust_flux
+    integer( tik )                    :: id
 
-
-    if ( subroutine_timers ) call timer("jules_exp_diags")
+    if ( LPROF ) call start_timing( id, 'diags.jules_exp' )
 
     ! Prognostic fields from surface collection
     call tile_fraction%write_field('surface__tile_fraction')
@@ -101,7 +128,7 @@ contains
     if (gross_prim_prod_flag) call gross_prim_prod%write_field()
     if (soil_respiration_flag) call soil_respiration%write_field()
 
-    if ( subroutine_timers ) call timer("jules_exp_diags")
+    if ( LPROF ) call stop_timing( id, 'diags.jules_exp' )
 
   end subroutine output_diags_for_jules_exp
 end module jules_exp_diags_mod

@@ -154,6 +154,7 @@
         "plot",
         "memory_plot_ex",
         "check",
+        "metadata_test",
         "publish",
         "phystest",
         "fcm_make",
@@ -162,14 +163,14 @@
         "configurate",
         "psyclone",
         "generate_weights",
-        "rose_ana",
+        "kgo_compare",
         "perftools-export",
         "pert_compare"] %}
 
     {# Remove a task prefix if listed above #}
     {% for prefix in task_prefixes %}
         {% if ns.str.startswith(prefix) %}
-            {% set ns.str = ns.str|replace(prefix~"_", "") %}
+            {% set ns.str = ns.str|replace(prefix~"_", "", 1) %}
         {% endif %}
     {% endfor %}
 

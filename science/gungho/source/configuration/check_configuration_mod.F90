@@ -6,13 +6,14 @@
 
 module check_configuration_mod
 
-  use constants_mod,        only: i_def, l_def
+  use config_mod,    only: config_type
+  use constants_mod, only: i_def, l_def, str_def
+
   use mixing_config_mod,    only: viscosity,                                   &
                                   viscosity_mu
   use transport_config_mod, only: operators,                                   &
                                   operators_fv,                                &
                                   operators_fem,                               &
-                                  consistent_metric,                           &
                                   fv_horizontal_order,                         &
                                   fv_vertical_order,                           &
                                   cheap_update,                                &
@@ -48,8 +49,9 @@ module check_configuration_mod
                                   substep_transport,                           &
                                   substep_transport_off,                       &
                                   adjust_vhv_wind,                             &
-                                  ffsl_unity_3d,                   &
-                                  wind_mono_top
+                                  ffsl_unity_3d,                               &
+                                  wind_mono_top,                               &
+                                  native_w2_wind_transport
   use transport_enumerated_types_mod,                                          &
                             only: scheme_mol_3d,                               &
                                   scheme_ffsl_3d,                              &
@@ -144,12 +146,13 @@ contains
                                            alpha,                              &
                                            outer_iterations,                   &
                                            inner_iterations
-    use base_mesh_config_mod,        only: geometry,                           &
-                                           geometry_spherical,                 &
+
+    use mesh_mod,                    only: geometry_spherical,                 &
                                            geometry_planar,                    &
-                                           topology,                           &
-                                           topology_fully_periodic,            &
-                                           topology_non_periodic,              &
+                                           topology_periodic,                  &
+                                           topology_non_periodic
+
+    use base_mesh_config_mod,        only: geometry, topology,                 &
                                            prime_mesh_name
     use departure_points_config_mod, only: horizontal_limit,                   &
                                            horizontal_limit_none,              &
@@ -274,10 +277,6 @@ contains
       end if
 
       ! Check the transport namelist
-      if ( geometry == geometry_spherical .and.  consistent_metric) then
-        write( log_scratch_space, '(A)' ) 'Consistent metric option only valid for planar geometries'
-        call log_event( log_scratch_space, LOG_LEVEL_ERROR )
-      end if
       any_scheme_mol = check_any_scheme_mol()
       if (any_scheme_mol) then
         ! Check that flux orders are even
@@ -316,7 +315,7 @@ contains
           write( log_scratch_space, '(A)' ) 'panel_edge_treatment only valid for spherical geometry'
           call log_event( log_scratch_space, LOG_LEVEL_ERROR )
         end if
-        if ( topology /=  topology_fully_periodic) then
+        if ( topology /=  topology_periodic) then
           write( log_scratch_space, '(A)' ) 'panel_edge_treatment only valid for fully periodic topology'
           call log_event( log_scratch_space, LOG_LEVEL_ERROR )
         end if
@@ -500,11 +499,14 @@ contains
             call log_event(                                                    &
               '3D unity transport can only be used when all variables '        &
               // 'are transported with the same splitting', LOG_LEVEL_ERROR)
-          else if ( vertical_method(i) /= split_method_ffsl                    &
-                    .or. horizontal_method(i) /= split_method_ffsl ) then
+          else if ( (vertical_method(i) == split_method_ffsl                   &
+                    .and. horizontal_method(i) /= split_method_ffsl) .or.      &
+                    (vertical_method(i) /= split_method_ffsl                   &
+                    .and. horizontal_method(i) == split_method_ffsl) ) then
             call log_event(                                                    &
-              '3D unity transport can only be used when all variables '        &
-              // 'are using FFSL for vertical and horizontal transport', LOG_LEVEL_ERROR)
+              '3D unity transport can only be used when variables using FFSL'  &
+              // 'are using FFSL for both vertical and horizontal transport',  &
+              LOG_LEVEL_ERROR)
           end if
         end if
 
@@ -607,36 +609,133 @@ contains
         end if
       end if
 
+      if ( native_w2_wind_transport ) then
+        if ( geometry == geometry_spherical .and. topology == topology_periodic ) then
+          write( log_scratch_space, '(A)' ) 'Native wind transport on global spherical domains is not supported'
+          call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+        end if
+        do i = 1, profile_size
+          if ( field_names(i) == "wind" ) then
+            if ( ( horizontal_method(i) /= split_method_sl  .or. &
+                   vertical_method(i) /= split_method_sl ) ) then
+              write( log_scratch_space, '(A)' ) 'Native wind transport requires SL scheme for the winds'
+              call log_event( log_scratch_space, LOG_LEVEL_ERROR )
+            end if
+            exit
+          end if
+        end do
+      end if
+
       call log_event( '...Check gungho config done', LOG_LEVEL_INFO )
 
   end subroutine check_configuration
 
 
-  !> @brief   Determine required stencil depth for the current configuration.
+  !> @brief   Determine required stencil depth for the current configuration,
+  !!          for each mesh.
   !> @details Depending on the choice of science schemes the required local
   !>          mesh needs to support the anticipated stencils. This function
   !>          returns required stencil depth that needs to be supported.
-  !> @return  stencil_depth
-  !>
+  !> @param[in,out] stencil_depths    Array of stencil depths for each base mesh
+  !> @param[in]     base_mesh_names   Array of base mesh names
+  !> @param[in]     config            The configuration object
   !===========================================================================
-  function get_required_stencil_depth() result(stencil_depth)
+  subroutine get_required_stencil_depth(stencil_depths, base_mesh_names, config)
+
+    use external_forcing_config_mod, only: theta_forcing_nudging,              &
+                                           wind_forcing_nudging,               &
+                                           external_forcing_is_loaded
+    use nudging_config_mod,          only: nudging_method_convolution
 
     implicit none
 
-    integer(kind=i_def) :: stencil_depth
-    integer(kind=i_def) :: sl_depth, special_edge_pts
+    integer(kind=i_def),    intent(inout) :: stencil_depths(:)
+    character(len=str_def), intent(in)    :: base_mesh_names(:)
+    type(config_type),      intent(in)    :: config
+
+    integer(kind=i_def) :: i
+    integer(kind=i_def) :: transport_depth, sl_depth
+    integer(kind=i_def) :: special_edge_pts
     logical(kind=l_def) :: any_horz_dep_pts
 
-    stencil_depth = 2
+    ! Configuration variables
+    character(len=str_def) :: prime_mesh_name
+    character(len=str_def) :: aerosol_mesh_name
+    character(len=str_def) :: nudging_mesh_name
+    logical(kind=l_def)    :: use_multires_coupling
+    logical(kind=l_def)    :: coarse_aerosol_transport
+    logical(kind=l_def)    :: coarse_nudging
+    logical(kind=l_def)    :: use_spectral_nudging
+    integer(kind=i_def)    :: operators
+    integer(kind=i_def)    :: fv_horizontal_order
+    integer(kind=i_def)    :: panel_edge_treatment
+    logical(kind=l_def)    :: panel_edge_high_order
+    integer(kind=i_def)    :: dep_pt_stencil_extent
+    integer(kind=i_def)    :: ffsl_inner_order
+    integer(kind=i_def)    :: ffsl_outer_order
+    integer(kind=i_def)    :: theta_forcing
+    integer(kind=i_def)    :: wind_forcing
+    integer(kind=i_def)    :: nudging_method
+    integer(kind=i_def)    :: spectral_stencil_extent
+
+    ! ------------------------------------------------------------------------ !
+    ! Get configuration variables
+    ! ------------------------------------------------------------------------ !
+    prime_mesh_name = config%base_mesh%prime_mesh_name()
+
+    operators             = config%transport%operators()
+    fv_horizontal_order   = config%transport%fv_horizontal_order()
+    panel_edge_treatment  = config%transport%panel_edge_treatment()
+    panel_edge_high_order = config%transport%panel_edge_high_order()
+    dep_pt_stencil_extent = config%transport%dep_pt_stencil_extent()
+    ffsl_inner_order      = config%transport%ffsl_inner_order()
+    ffsl_outer_order      = config%transport%ffsl_outer_order()
+
+    use_multires_coupling = config%formulation%use_multires_coupling()
+    if (use_multires_coupling) then
+      aerosol_mesh_name        = config%multires_coupling%aerosol_mesh_name()
+      coarse_aerosol_transport = config%multires_coupling%coarse_aerosol_transport()
+      nudging_mesh_name        = config%multires_coupling%nudging_mesh_name()
+      coarse_nudging           = config%multires_coupling%coarse_nudging()
+    else
+      coarse_nudging = .false.
+    end if
+
+    use_spectral_nudging = .false.
+    if (external_forcing_is_loaded()) then
+      theta_forcing = config%external_forcing%theta_forcing()
+      wind_forcing = config%external_forcing%wind_forcing()
+      if (theta_forcing == theta_forcing_nudging                               &
+          .or. wind_forcing == wind_forcing_nudging) then
+        nudging_method = config%nudging%nudging_method()
+        if (nudging_method == nudging_method_convolution) then
+          spectral_stencil_extent = config%nudging%spectral_stencil_extent()
+          use_spectral_nudging = .true.
+          if (.not. coarse_nudging) then
+            nudging_mesh_name = prime_mesh_name
+          end if
+        end if
+      end if
+    end if
+
+    ! ------------------------------------------------------------------------ !
+    ! Set default depth
+    ! ------------------------------------------------------------------------ !
+
+    transport_depth = 2
 
     if (operators == operators_fv) then
       ! Need larger halos for fv operators
-      stencil_depth  = max( stencil_depth, fv_horizontal_order/2 )
+      transport_depth  = max( transport_depth, fv_horizontal_order/2 )
     end if
+
+    ! ------------------------------------------------------------------------ !
+    ! Determine depth when using a semi-Lagrangian scheme
+    ! ------------------------------------------------------------------------ !
 
     any_horz_dep_pts = check_horz_dep_pts()
 
-    if ( any_horz_dep_pts ) then
+    if (any_horz_dep_pts) then
       ! When an SL scheme is used, the halo depth should be large enough to
       ! encompass the largest anticipated Courant number (effectively the
       ! departure distance in the SL scheme), plus any extra cells required for
@@ -646,8 +745,8 @@ contains
       ! - the order of reconstruction
       ! - whether special edge treatment is used (this shifts the stencil by 1)
 
-      if ( panel_edge_treatment == panel_edge_treatment_special_edges          &
-           .AND. panel_edge_high_order ) then
+      if (panel_edge_treatment == panel_edge_treatment_special_edges           &
+           .AND. panel_edge_high_order) then
         special_edge_pts = 1
       else
         special_edge_pts = 0
@@ -659,18 +758,44 @@ contains
         + special_edge_pts                          & ! special edge treatment
       )
 
-      if ( panel_edge_treatment == panel_edge_treatment_remapping ) then
-        if ( panel_edge_high_order ) then
-          sl_depth = max( sl_depth, 3 )
+      if (panel_edge_treatment == panel_edge_treatment_remapping) then
+        if (panel_edge_high_order) then
+          transport_depth = max( sl_depth, 3 )
         else
           sl_depth = max( sl_depth, 2 )
         end if
       end if
 
-      stencil_depth = max( stencil_depth, sl_depth )
+      transport_depth = max( transport_depth, sl_depth )
     end if
 
-  end function get_required_stencil_depth
+    ! ------------------------------------------------------------------------ !
+    ! Set depth for each mesh
+    ! ------------------------------------------------------------------------ !
+
+    ! Loop through meshes to determine whether transport takes place on it
+    do i = 1, size(base_mesh_names)
+      if (trim(base_mesh_names(i)) == trim(prime_mesh_name)) then
+        ! Assume transport always occurs on prime mesh
+        stencil_depths(i) = transport_depth
+
+      else if (use_multires_coupling .and. coarse_aerosol_transport .and.      &
+               trim(base_mesh_names(i)) == trim(aerosol_mesh_name)) then
+        ! Coarse mesh transport for aerosols
+        stencil_depths(i) = transport_depth
+
+      else
+        ! No transport on this mesh, so set stencil depth to 2
+        stencil_depths(i) = 2
+      end if
+
+      if ( use_spectral_nudging                                                &
+           .and. trim(base_mesh_names(i)) == trim(nudging_mesh_name) ) then
+        stencil_depths(i) = MAX(stencil_depths(i), spectral_stencil_extent)
+      end if
+    end do
+
+  end subroutine get_required_stencil_depth
 
   !> @brief   Determine whether any of the transport schemes are MoL
   !> @details Loops through the transport schemes specified for different

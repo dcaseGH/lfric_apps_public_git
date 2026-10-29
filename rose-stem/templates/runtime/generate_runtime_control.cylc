@@ -24,7 +24,7 @@
             ROSE_TASK_APP = extract_source
             DEPENDENCIES = {{dependencies}}
             USE_MIRRORS = {{USE_MIRRORS}}
-            USE_TOKENS = {{USE_TOKENS}}
+            USE_TOKENS = {{site_vars.get("USE_TOKENS", "false")}}
         {% if USE_MIRRORS %}
             {% if "git_mirror_loc" in site_vars %}
             GIT_MIRROR_LOC = {{site_vars.git_mirror_loc}}
@@ -89,19 +89,26 @@
         set_task_resources,
         with context %}
 
+    {# Generate a resource family for the task #}
+    {% set resource_family = task~"_resources" %}
+    {{ set_task_resources(resource_family, "", 5, 1, [1, "GB"], none) }}
+
     [[{{task}}]]
-        inherit = HOUSEKEEPING, {{platform|upper}}_HOUSEKEEPING
-        execution time limit = PT5M
+        inherit = HOUSEKEEPING, {{platform|upper}}_HOUSEKEEPING, {{resource_family|upper}}
         script = rose task-run --app-key=housekeeping
-        [[[directives]]]
-            {{ set_task_resources(1, [1, "GB"]) }}
 
 {% elif task.startswith("remote-init") %}
 
     {% set platform = task.split('_')[1] %}
 
+    {% if "remote_init_family" in site_vars and platform in site_vars["remote_init_family"] %}
+        {% set remote_inherit = "EXPORT-SOURCE, "~site_vars["remote_init_family"][platform]~", CONTROL_TASK_RETRIES" %}
+    {% else %}
+        {% set remote_inherit = "EXPORT-SOURCE, "~platform|upper~"_BASE, CONTROL_TASK_RETRIES" %}
+    {% endif %}
+
     [[{{task}}]]
-        inherit = EXPORT-SOURCE, {{platform|upper}}_BASE, CONTROL_TASK_RETRIES
+        inherit = {{remote_inherit}}
         script = true
         execution time limit = PT1M
 

@@ -25,13 +25,14 @@ use cmpr_type_mod, only: cmpr_alloc
 use grid_type_mod, only: grid_type
 use turb_type_mod, only: turb_type
 use parcel_type_mod, only: parcel_type, i_massflux_d
+use set_l_within_bl_mod, only: set_l_within_bl
 
 implicit none
 
 ! Number of primary fields
 integer, intent(in) :: n_fields_tot
 
-! Current model-level
+! Current full model-level
 integer, intent(in) :: k
 
 ! Structure containing grid fields
@@ -46,33 +47,45 @@ type(parcel_type), intent(in) :: par_conv
 ! Saved parcel properties at the boundary-layer top
 type(parcel_type), intent(in out) :: par_bl_top
 
+! Flags for whether current and previous levels are within the boundary-layer
+logical :: l_within_bl_k   ( par_conv % cmpr % n_points )
+logical :: l_within_bl_km1 ( par_conv % cmpr % n_points )
+
 ! Points where parcel has just crossed the BL-top
 integer :: nc
-integer :: index_ic( par_conv % cmpr % n_points )
+integer :: index_ic ( par_conv % cmpr % n_points )
+
+! Array bounds
+integer :: lb_h(3), ub_h(3), lb_t(2), ub_t(2)
 
 ! Loop counters
-integer :: ic, ic0, i, j, i_field
+integer :: ic, ic0, i_field
 
+
+! Check whether the current and previous full levels are within the
+! boundary-layer
+lb_h = lbound( grid % height_half )
+ub_h = ubound( grid % height_half )
+lb_t = lbound( turb % z_bl_top )
+ub_t = ubound( turb % z_bl_top )
+call set_l_within_bl( par_conv % cmpr, k,                                      &
+                      lb_h, ub_h, grid % height_half,                          &
+                      lb_t, ub_t, turb % z_bl_top,                             &
+                      l_within_bl_k )
+call set_l_within_bl( par_conv % cmpr, k-1,                                    &
+                      lb_h, ub_h, grid % height_half,                          &
+                      lb_t, ub_t, turb % z_bl_top,                             &
+                      l_within_bl_km1 )
 
 ! Find points where the parcel just crossed the BL-top
 nc = 0
-
 do ic = 1, par_conv % cmpr % n_points
-
-  ! Extract out indices of current point
-  i = par_conv % cmpr % index_i(ic)
-  j = par_conv % cmpr % index_j(ic)
-
-  ! If the lower level interface was at or below the BL-top
-  if ( grid%height_half(i,j,k)  <= turb%z_bl_top(i,j) ) then
-    ! If the upper level interface is above the BL-top
-    if ( grid%height_half(i,j,k+1) > turb%z_bl_top(i,j) ) then
-      ! Increment counter and save address of this point
-      nc = nc + 1
-      index_ic(nc) = ic
-    end if
+  ! If level k is above the BL-top, but level k-1 isn't
+  if ( ( .not. l_within_bl_k(ic) ) .and. l_within_bl_km1(ic) ) then
+    ! Increment counter and save address of this point
+    nc = nc + 1
+    index_ic(nc) = ic
   end if
-
 end do
 
 ! If any points just crossed the BL-top

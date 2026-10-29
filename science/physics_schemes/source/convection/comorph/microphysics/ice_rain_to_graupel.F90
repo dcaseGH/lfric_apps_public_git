@@ -33,7 +33,7 @@ subroutine ice_rain_to_graupel( n_points,                                      &
                                 kq_graup, kt_graup )
 
 
-use comorph_constants_mod, only: real_cvprec, zero
+use comorph_constants_mod, only: real_cvprec, zero, min_float
 
 implicit none
 
@@ -102,7 +102,7 @@ integer :: ic, ic2
 l_added_where_none = .false.
 over_nc_col_cf: do ic2 = 1, nc_col_cf
   ic = index_ic_col_cf(ic2)
-  if ( q_graup(ic) == zero ) then
+  if ( .not. q_graup(ic) > zero ) then
     l_added_where_none = .true.
     exit over_nc_col_cf
   end if
@@ -124,7 +124,7 @@ end do
 if ( l_added_where_none ) then
   nc_graup = 0
   do ic = 1, n_points
-    if ( q_graup(ic) > 0 ) then
+    if ( q_graup(ic) > zero ) then
       nc_graup = nc_graup + 1
       index_ic_graup(nc_graup) = ic
     end if
@@ -151,7 +151,7 @@ do ic2 = 1, nc_col_cf
   !  = rain collected by ice
   !  / ( rain left now + rain already removed by collision
   frac_rain = dq_col_cf(ic)                                                    &
-            / ( q_rain(ic) + dq_col_rain_tot(ic) )
+            / max( q_rain(ic) + dq_col_rain_tot(ic), min_float )
   ! Apply minimum limit to exchange coefs
   kt_graup(ic) = max( kt_graup(ic), kt_rain(ic) * frac_rain )
   kq_graup(ic) = max( kq_graup(ic), kq_rain(ic) * frac_rain )

@@ -150,11 +150,11 @@ module jules_exp_kernel_mod
          arg_type(GH_FIELD, GH_REAL,  GH_READ,      ANY_DISCONTINUOUS_SPACE_1), &! urbdisp
          arg_type(GH_FIELD, GH_REAL,  GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),&! rhostar
          arg_type(GH_FIELD, GH_REAL,  GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),&! recip_l_mo_sea
-         arg_type(GH_FIELD, GH_REAL,  GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),&! h_blend_orog
          arg_type(GH_FIELD, GH_REAL,  GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),&! t1_sd
          arg_type(GH_FIELD, GH_REAL,  GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),&! q1_sd
          arg_type(GH_FIELD, GH_REAL,  GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),&! diag__gross_prim_prod
          arg_type(GH_FIELD, GH_REAL,  GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),&! diag__z0h_eff
+         arg_type(GH_FIELD, GH_REAL,  GH_WRITE,     ANY_DISCONTINUOUS_SPACE_1),&! diag__chr10m
          arg_type(GH_FIELD, GH_INTEGER, GH_READ,    ANY_DISCONTINUOUS_SPACE_1) &! ocn_cpl_point
          /)
     integer :: operates_on = DOMAIN
@@ -273,12 +273,12 @@ contains
   !> @param[in]     urbdisp                Urban displacement height
   !> @param[in,out] rhostar_2d             Surface density
   !> @param[in,out] recip_l_mo_sea_2d      Inverse Obukhov length over sea only
-  !> @param[in,out] h_blend_orog_2d        Orographic blending height
   !> @param[in,out] t1_sd_2d               StDev of level 1 temperature
   !> @param[in,out] q1_sd_2d               StDev of level 1 humidity
   !> @param[in,out] gross_prim_prod        Diagnostic: Gross Primary Productivity
   !> @param[in,out] z0h_eff                Diagnostic: Gridbox mean effective roughness length for scalars
-  !> @param[in,out] ocn_cpl_point          Diagnostic: Coupling point mask
+  !> @param[in,out] chr10m                 Diagnostic: 10m transfer coefficient
+  !> @param[in,out] ocn_cpl_point          Coupling point mask
   !> @param[in]     ndf_wth                Number of DOFs per cell for potential temperature space
   !> @param[in]     undf_wth               Number of unique DOFs for potential temperature space
   !> @param[in]     map_wth                Dofmap for the cell at the base of the column for potential temperature space
@@ -424,11 +424,11 @@ contains
                            urbdisp,                               &
                            rhostar_2d,                            &
                            recip_l_mo_sea_2d,                     &
-                           h_blend_orog_2d,                       &
                            t1_sd_2d,                              &
                            q1_sd_2d,                              &
                            gross_prim_prod,                       &
                            z0h_eff,                               &
+                           chr10m,                                &
                            ocn_cpl_point,                         &
                            ndf_wth, undf_wth, map_wth,            &
                            ndf_w3, undf_w3, map_w3,               &
@@ -603,7 +603,6 @@ contains
                                                            z0m_eff,            &
                                                            ustar,              &
                                                            soil_moist_avail,   &
-                                                           h_blend_orog_2d,    &
                                                            recip_l_mo_sea_2d,  &
                                                            rhostar_2d,         &
                                                            t1_sd_2d, q1_sd_2d
@@ -700,6 +699,7 @@ contains
     real(kind=r_def), dimension(undf_dust), intent(inout)  :: dust_div_flux
 
     real(kind=r_def), pointer, intent(inout) :: z0h_eff(:), gross_prim_prod(:)
+    real(kind=r_def), pointer, intent(inout) :: chr10m(:)
     real(kind=r_def), intent(in) :: flux_h
     real(kind=r_def), intent(in) :: flux_e
 
@@ -1397,6 +1397,8 @@ contains
     ! needed to ensure z0h_eff is saved if wanted
     sf_diag%l_z0h_eff_gb = .not. associated(z0h_eff, empty_real_data)
     sf_diag%l_z0m_gb = .true.
+    sf_diag%l_t10m = .not. associated(chr10m, empty_real_data)
+    sf_diag%l_q10m = .not. associated(chr10m, empty_real_data)
     call alloc_sf_expl(sf_diag, .true., land_field)
 
     !-----------------------------------------------------------------------
@@ -1678,7 +1680,6 @@ contains
       ! variables passed to explicit BL
       rhostar_2d(map_2d(1,i)) = rhostar(i,1)
       recip_l_mo_sea_2d(map_2d(1,i)) = recip_l_mo_sea(i,1)
-      h_blend_orog_2d(map_2d(1,i)) = jules_vars%h_blend_orog_ij(i,1)
       t1_sd_2d(map_2d(1,i)) = t1_sd(i,1)
       q1_sd_2d(map_2d(1,i)) = q1_sd(i,1)
 
@@ -1726,7 +1727,7 @@ contains
 
     do n = 1, n_land_tile
       do m = 1, sm_levels
-        i_tile=sm_levels*(n-1)+ m - 1 
+        i_tile=sm_levels*(n-1)+ m - 1
         do k = 1, ainfo%surft_pts(n)
           l = ainfo%surft_index(k,n)
           tile_water_extract(map_smtile(1,ainfo%land_index(l))+i_tile) = wt_ext_surft(l,m,n)
@@ -1858,6 +1859,11 @@ contains
     if (.not. associated(z0h_eff, empty_real_data) ) then
       do i = 1, seg_len
         z0h_eff(map_2d(1,i)) = sf_diag%z0h_eff_gb(i,1)
+      end do
+    end if
+    if (.not. associated(chr10m, empty_real_data) ) then
+      do i = 1, seg_len
+        chr10m(map_2d(1,i)) = sf_diag%chr10m(i,1)
       end do
     end if
 

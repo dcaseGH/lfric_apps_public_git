@@ -19,22 +19,17 @@ contains
 ! This routine only handles parcel properties which differ
 ! between the sub-grid regions (T,q,qc,cf); winds and tracers
 ! are assumed equal in all regions and so are calculated
-! earlier, in set_par_winds.
-! This routine also applies the CFL limit to the initiating
-! mass-flux from each level / region.
+! earlier, in set_par_fields.
 subroutine add_region_parcel( n_points, nc, index_ic,                          &
                               init_mass, fields_par,                           &
                               pert_tl, pert_qt,                                &
-                              max_ent_frac, l_within_bl,                       &
-                              layer_mass, frac_r_k,                            &
-                              par_massflux_d,                                  &
-                              par_mean, par_core )
+                              par_super, par_mean, par_core )
 
-use comorph_constants_mod, only: real_cvprec, par_gen_core_fac, l_par_core,    &
-                     comorph_timestep, i_cfl_check,                            &
-                     i_cfl_check_local, i_cfl_check_hybrid
+use comorph_constants_mod, only: real_cvprec, min_float, one,                  &
+                                 par_gen_core_fac, l_par_core
 use fields_type_mod, only: n_fields, i_temperature, i_q_vap,                   &
                            i_qc_first
+use parcel_type_mod, only: n_par, i_massflux_d
 
 implicit none
 
@@ -46,7 +41,7 @@ integer, intent(in) :: nc
 integer, intent(in) :: index_ic(nc)
 
 ! Initiating mass-flux from current region
-real(kind=real_cvprec), intent(in out) :: init_mass(nc)
+real(kind=real_cvprec), intent(in) :: init_mass(nc)
 
 ! Unperturbed initiating parcel properties
 real(kind=real_cvprec), intent(in) :: fields_par                               &
@@ -55,59 +50,36 @@ real(kind=real_cvprec), intent(in) :: fields_par                               &
 real(kind=real_cvprec), intent(in) :: pert_tl(nc)
 real(kind=real_cvprec), intent(in) :: pert_qt(nc)
 
-! Max fraction of mass in region which can initiate (CFL limit)
-real(kind=real_cvprec), intent(in) :: max_ent_frac
-
-! Flag for whether each point is within the boundary-layer
-logical, intent(in) :: l_within_bl(n_points)
-
-! Total dry-mass on level k
-real(kind=real_cvprec), intent(in) :: layer_mass(n_points)
-
-! Fraction occupied by current region
-real(kind=real_cvprec), intent(in) :: frac_r_k(n_points)
-
-! Initiating mass-flux summed over sub-grid regions
-real(kind=real_cvprec), intent(in out) :: par_massflux_d(n_points)
+! Parcel super-array for initiating mass-flux summed over sub-grid regions
+real(kind=real_cvprec), intent(in out) :: par_super                            &
+                                          ( n_points, n_par )
 ! Parcel mean and core properties averaged over regions
 real(kind=real_cvprec), intent(in out) :: par_mean                             &
-                                         ( n_points, n_fields )
+                                          ( n_points, n_fields )
 real(kind=real_cvprec), intent(in out) :: par_core                             &
-                                         ( n_points, n_fields )
+                                          ( n_points, n_fields )
+
+! Mass-flux weights for combining current region parcel into par_gen
+real(kind=real_cvprec) :: weight_a(nc)
+real(kind=real_cvprec) :: weight_m(nc)
+
+! Normalisation when calculating the mass-flux weights
+real(kind=real_cvprec) :: norm, tmp
 
 ! Loop counters
 integer :: ic, ic2, i_field
 
 
-! First, check that the initiating mass doesn't exceed the
-! CFL limit for numerical stability...
-select case(i_cfl_check)
-case (i_cfl_check_local)
-  ! Always impose vertically local limit
-  do ic2 = 1, nc
-    ic = index_ic(ic2)
-    init_mass(ic2) = min( init_mass(ic2),                                      &
-                          max_ent_frac * layer_mass(ic)                        &
-                          * frac_r_k(ic) / comorph_timestep )
-  end do
-case (i_cfl_check_hybrid)
-  ! Only apply vertically local limit above the BL-top
-  do ic2 = 1, nc
-    ic = index_ic(ic2)
-    if ( .not. l_within_bl(ic) ) then
-      init_mass(ic2) = min( init_mass(ic2),                                    &
-                            max_ent_frac * layer_mass(ic)                      &
-                            * frac_r_k(ic) / comorph_timestep )
-    end if
-  end do
-end select
-
-
-! Add contribution to total initiation mass-source
-! summed over all regions
 do ic2 = 1, nc
   ic = index_ic(ic2)
-  par_massflux_d(ic) = par_massflux_d(ic) + init_mass(ic2)
+  ! Compute combined initiating mass
+  norm = par_super(ic,i_massflux_d) + init_mass(ic2)
+  ! Compute mass-flux weights
+  tmp = one / max( norm, min_float )
+  weight_a(ic2) = init_mass(ic2) * tmp
+  weight_m(ic2) = par_super(ic,i_massflux_d) * tmp
+  ! Update mass-flux summed over regions
+  par_super(ic,i_massflux_d) = norm
 end do
 
 ! Store mass-flux-weighted contribution in the
@@ -115,19 +87,21 @@ end do
 do ic2 = 1, nc
   ! Perturbations applied to T,q
   ic = index_ic(ic2)
-  par_mean(ic,i_temperature) = par_mean(ic,i_temperature)                      &
-      + ( fields_par(ic2,i_temperature) + pert_tl(ic2) )                       &
-        * init_mass(ic2)
-  par_mean(ic,i_q_vap) = par_mean(ic,i_q_vap)                                  &
-      + ( fields_par(ic2,i_q_vap) + pert_qt(ic2) )                             &
-        * init_mass(ic2)
+  par_mean(ic,i_temperature)                                                   &
+    = weight_m(ic2) * par_mean(ic,i_temperature)                               &
+    + weight_a(ic2) * ( fields_par(ic2,i_temperature) + pert_tl(ic2) )
+  par_mean(ic,i_q_vap)                                                         &
+    = weight_m(ic2) * par_mean(ic,i_q_vap)                                     &
+    + weight_a(ic2) * ( fields_par(ic2,i_q_vap) + pert_qt(ic2) )
 end do
+
 do i_field = i_qc_first, n_fields
   ! Other fields unperturbed
   do ic2 = 1, nc
     ic = index_ic(ic2)
-    par_mean(ic,i_field) = par_mean(ic,i_field)                                &
-      + fields_par(ic2,i_field) * init_mass(ic2)
+    par_mean(ic,i_field)                                                       &
+      = weight_m(ic2) * par_mean(ic,i_field)                                   &
+      + weight_a(ic2) * fields_par(ic2,i_field)
   end do
 end do
 
@@ -137,21 +111,22 @@ if ( l_par_core ) then
   do ic2 = 1, nc
     ! Perturbations applied to T,q
     ic = index_ic(ic2)
-    par_core(ic,i_temperature) = par_core(ic,i_temperature)                    &
-      + ( fields_par(ic2,i_temperature)                                        &
-        + pert_tl(ic2) * par_gen_core_fac )                                    &
-        * init_mass(ic2)
-    par_core(ic,i_q_vap) = par_core(ic,i_q_vap)                                &
-      + ( fields_par(ic2,i_q_vap)                                              &
-        + pert_qt(ic2) * par_gen_core_fac )                                    &
-        * init_mass(ic2)
+    par_core(ic,i_temperature)                                                 &
+      = weight_m(ic2) * par_core(ic,i_temperature)                             &
+      + weight_a(ic2) * ( fields_par(ic2,i_temperature)                        &
+                        + pert_tl(ic2) * par_gen_core_fac )
+    par_core(ic,i_q_vap)                                                       &
+      = weight_m(ic2) * par_core(ic,i_q_vap)                                   &
+      + weight_a(ic2) * ( fields_par(ic2,i_q_vap)                              &
+                        + pert_qt(ic2) * par_gen_core_fac )
   end do
   do i_field = i_qc_first, n_fields
     ! Other fields unperturbed
     do ic2 = 1, nc
       ic = index_ic(ic2)
-      par_core(ic,i_field) = par_core(ic,i_field)                              &
-        + fields_par(ic2,i_field) * init_mass(ic2)
+      par_core(ic,i_field)                                                     &
+        = weight_m(ic2) * par_core(ic,i_field)                                 &
+        + weight_a(ic2) * fields_par(ic2,i_field)
     end do
   end do
 end if

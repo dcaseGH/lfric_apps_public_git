@@ -98,7 +98,7 @@ module tl_test_hydrostatic_mod
                      LOG_LEVEL_INFO )
 
     qr => get_qr_fe()
-    geopotential => get_geopotential(mesh%get_id())
+    geopotential => get_geopotential(modeldb%config, mesh)
 
     prognostic_fields => modeldb%fields%get_field_collection( &
                                            "prognostic_fields")
@@ -188,8 +188,6 @@ module tl_test_hydrostatic_mod
       call invoke( X_minus_Y( diff, n2_rhs_u, n1_rhs_u ), &
                    inc_X_minus_Y( diff, p_rhs_u ),        &
                    X_innerproduct_X( norm_diff, diff ) )
-
-      norm_diff = sqrt(norm_diff)
 
       write( log_scratch_space, '(A, E32.12, A, E32.12)' ) &
              'gamma = ', gamma, ' norm = ', norm_diff
