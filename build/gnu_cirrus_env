@@ -1,0 +1,6 @@
+module load spack
+spack env activate /epccfs/n02/n02/dcase/HPC_envs_climate_science/central_cirrus_gnu/
+source /epccfs/n02/n02/dcase/HPC_envs_climate_science/central_cirrus_gnu/.venv/bin/activate
+module load PrgEnv-gnu
+module load cray-hdf5-parallel/1.14.3.5
+module load cray-netcdf-hdf5parallel/4.9.0.17
