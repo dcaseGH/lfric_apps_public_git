@@ -26,7 +26,7 @@
             --partition=standard
     {%- if site_vars["hpc_queue"] == 'short' %}
             --reservation=shortqos
-            --qos=short
+            --qos=standard
     {%- elif site_vars["hpc_queue"] == 'standard' %}
             --qos=standard
     {%- else %}
@@ -41,8 +41,8 @@
 
 
 {% macro serial_queue(cores) %}
-            --partition=serial
-            --qos=serial
+            --partition=standard
+            --qos=standard
             --ntasks={{ cores }}
 {% endmacro %}
 
@@ -77,16 +77,8 @@
     {% else %}
         {# This is small enough to run on the serial queue #}
         {{ serial_queue(mpi_ranks * threads) }}
-        {{ set_memory(memory) }}
     {% endif %}
 
-{% endmacro %}
-
-
-{% macro set_memory(mem) %}
-    {% set value = mem[0]|int %}
-    {% set unit = mem[1] %}
-            --mem={{value}}{{unit}}
 {% endmacro %}
 
 
