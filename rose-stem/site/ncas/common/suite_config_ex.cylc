@@ -66,8 +66,8 @@
 
     [[EX_RUN]]
         [[[environment]]]
-            BIG_DATA_DIR   = '/work/y07/shared/lfric/data/'
-            SMALL_DATA_DIR = '/work/y07/shared/lfric/data/'
+            BIG_DATA_DIR   = '/epccfs/n02/n02/dcase/transfer/'
+            SMALL_DATA_DIR = '/epccfs/n02/n02/dcase/transfer/'
             TARGET_PLATFORM = 'ncas-ex'
             RUN_METHOD = srun
 

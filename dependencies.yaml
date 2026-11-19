@@ -16,7 +16,7 @@
 # The entry for this repository will have blank values for both source and ref
 # by default, which will cause the test suite to use the source code from the
 # local clone. These can be filled to set a different source if desired.
-
+#   source: /home/n02/n02/dcase/lfric/lfric_core_72ba
 casim:
     source: git@github.com:MetOffice/casim.git
     ref: 996db30c2bac55360623eb081b4d2e273289f4de
@@ -30,8 +30,8 @@ lfric_apps:
     ref:
 
 lfric_core:
-   source: git@github.com:dcaseGH/lfric_core.git
-   ref: lfric_atm_build_061126
+   source: /home/n02/n02/dcase/lfric/lfric_core_temp
+   ref:
 
 moci:
     source: git@github.com:MetOffice/moci.git
