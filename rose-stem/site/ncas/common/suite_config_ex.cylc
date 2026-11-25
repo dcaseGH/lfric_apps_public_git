@@ -13,12 +13,13 @@
 
     [[EX_BASE]]
         platform = cirrus-bg
+        #DHC - note - to be sure that bash variable resolves as false (not 'false' which might be true) - unset it or empty?
         [[[environment]]]
             BUILD_ROOT = ${CYLC_TASK_WORK_DIR}/${CYLC_WORKFLOW_NAME_BASE}_${USER}
             HYPERTHREADS    = 1
             CORES_PER_NODE  = 128
             NUMA_REGIONS_PER_NODE = 8
-            LUSTRE_FILESYSTEM = false
+            LUSTRE_FILESYSTEM = ''
 
     [[EX_SLURM]]
         inherit = EX_BASE
@@ -66,8 +67,8 @@
 
     [[EX_RUN]]
         [[[environment]]]
-            BIG_DATA_DIR   = '/epccfs/n02/n02/dcase/transfer/'
-            SMALL_DATA_DIR = '/epccfs/n02/n02/dcase/transfer/'
+            BIG_DATA_DIR   = '/epccfs/n02/n02/dcase/required_transfer/'
+            SMALL_DATA_DIR = '/epccfs/n02/n02/dcase/required_transfer/'
             TARGET_PLATFORM = 'ncas-ex'
             RUN_METHOD = srun
 

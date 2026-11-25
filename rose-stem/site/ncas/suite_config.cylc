@@ -7,6 +7,11 @@
 
     [[NCAS_ORIG]]
         platform = localhost
+        [[[environment]]]
+            SSH_AUTH_SOCK=/tmp/ssh-3AAKm4djWiYp/agent.861041
+            SSH_AGENT_PID=861042
+
+
 
 {% include 'site/ncas/common/suite_config_ex.cylc' %}
 

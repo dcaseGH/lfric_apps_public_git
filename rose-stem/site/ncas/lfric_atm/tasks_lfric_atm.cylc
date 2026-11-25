@@ -3,7 +3,7 @@
 {% if task_ns.conf_name == "nwp_gal10_3n_1T-C192_MG" %}
 
     {% do task_dict.update({
-        "xios_nodes": 4,
+        "xios_nodes": 1,
         "mpi_parts_xios" : 16,
         "wallclock": 20,
         "plot_str": "",
@@ -11,6 +11,8 @@
 
 {% elif task_ns.conf_name == "nwp_gal10-C48_MG" %}
     {% do task_dict.update({
+
+        "opt_confs": ['um_dump', 'no_diags'],
         "mpi_parts": 54,
         "plot_str": "",
     }) %}
