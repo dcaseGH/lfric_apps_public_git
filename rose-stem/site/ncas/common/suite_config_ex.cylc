@@ -34,23 +34,18 @@
         pre-script = """
                      umask 0022
                      module load spack
-                     spack env activate /epccfs/n02/n02/dcase/HPC_envs_climate_science/central_cirrus_gnu/
-                     source /epccfs/n02/n02/dcase/HPC_envs_climate_science/central_cirrus_gnu/.venv/bin/activate
+                     module use /epccfs/n02/n02/dcase/spack_testing/met-lfric-cirrus/environments/lfric/modules/Core
+                     module load lfric-meta-gcc-xios2/3.2
                      module load PrgEnv-gnu
                      module load cray-hdf5-parallel/1.14.3.5
                      module load cray-netcdf-hdf5parallel/4.9.0.17
-                     unset BASH_XTRACEFD
+                     export USE_VERNIER=''
                      """
         [[[environment]]]
              COMPILER = 'gnu'
-             FC='ftn'
-             FPP='gfortran -E -x f95-cpp-input'
              CRAY_ENVIRONMENT='TRUE'
              PE_ENV='GNU'
-             LDMPI='ftn'
              VERBOSE='3'
-             USE_LEGACY_TIMER="false"
-             USE_TIMING_WRAPPER="false"
 
     [[EX_CCE]]
         pre-script = """
